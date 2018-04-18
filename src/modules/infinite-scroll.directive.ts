@@ -11,10 +11,13 @@ import {
   SimpleChanges
 } from '@angular/core';
 import { Subscription } from 'rxjs/Subscription';
+import { Observable } from 'rxjs/Observable';
+import { Subject } from 'rxjs/Subject';
 
 import { InfiniteScrollEvent, IInfiniteScrollAction } from '../models';
 import { hasWindowDefined, inputPropChanged } from '../services/ngx-ins-utils';
 import { createScroller, InfiniteScrollActions } from '../services/scroll-register';
+import { debounceTime } from 'rxjs/operators';
 
 @Directive({
   selector: '[infiniteScroll], [infinite-scroll], [data-infinite-scroll]'
@@ -34,6 +37,7 @@ export class InfiniteScrollDirective
   @Input() horizontal: boolean = false;
   @Input() alwaysCallback: boolean = false;
   @Input() fromRoot: boolean = false;
+  @Input() emitScrolledUntilScrollable: Observable<boolean>;
 
   private disposeScroller: Subscription;
 
@@ -73,9 +77,28 @@ export class InfiniteScrollDirective
           scrollContainer: this.infiniteScrollContainer,
           scrollWindow: this.scrollWindow,
           throttle: this.infiniteScrollThrottle,
-          upDistance: this.infiniteScrollUpDistance
+          upDistance: this.infiniteScrollUpDistance,
         }).subscribe((payload: any) => this.zone.run(() => this.handleOnScroll(payload)));
       });
+
+      if (this.emitScrolledUntilScrollable instanceof Subject) {
+        let lastScrollHeight: number;
+        let lastClientHeight: number;
+
+        this.emitScrolledUntilScrollable.pipe(debounceTime(100)).subscribe((allElementsLoaded) => {
+          if (allElementsLoaded || this.element.nativeElement.scrollHeight > this.element.nativeElement.clientHeight) {
+            return;
+          }
+
+          lastScrollHeight = this.element.nativeElement.scrollHeight;
+          setTimeout(() => {
+            this.handleOnScroll({
+              type: InfiniteScrollActions.DOWN,
+              payload: null,
+            });
+          });
+        });
+      }
     }
   }
 

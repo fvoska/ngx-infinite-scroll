@@ -1,3 +1,4 @@
+import { debounceTime } from 'rxjs/operators';
 import {
   AfterViewInit,
   Directive,
@@ -17,7 +18,6 @@ import { Subject } from 'rxjs/Subject';
 import { InfiniteScrollEvent, IInfiniteScrollAction } from '../models';
 import { hasWindowDefined, inputPropChanged } from '../services/ngx-ins-utils';
 import { createScroller, InfiniteScrollActions } from '../services/scroll-register';
-import { debounceTime } from 'rxjs/operators';
 
 @Directive({
   selector: '[infiniteScroll], [infinite-scroll], [data-infinite-scroll]'
@@ -37,7 +37,7 @@ export class InfiniteScrollDirective
   @Input() horizontal: boolean = false;
   @Input() alwaysCallback: boolean = false;
   @Input() fromRoot: boolean = false;
-  @Input() emitScrolledUntilScrollable: Observable<boolean>;
+  @Input() loadUntilScrollable: Observable<boolean>;
 
   private disposeScroller: Subscription;
 
@@ -81,21 +81,26 @@ export class InfiniteScrollDirective
         }).subscribe((payload: any) => this.zone.run(() => this.handleOnScroll(payload)));
       });
 
-      if (this.emitScrolledUntilScrollable instanceof Subject) {
-        let lastScrollHeight: number;
-        let lastClientHeight: number;
+      if (this.loadUntilScrollable instanceof Subject) {
+        // This piece is in charge of calling handleOnScroll until the items container has scrollbar
+        // or until all items are loaded (in case total number of items is not enough to start scrolling
+        // or if the container is not scrollable).
 
-        this.emitScrolledUntilScrollable.pipe(debounceTime(100)).subscribe((allElementsLoaded) => {
-          if (allElementsLoaded || this.element.nativeElement.scrollHeight > this.element.nativeElement.clientHeight) {
+        this.loadUntilScrollable.pipe(
+          debounceTime(this.infiniteScrollThrottle)
+        ).subscribe((allItemsLoaded: boolean) => {
+          // Client app should call loadUntilScrollable.next after the subset of items is rendered
+          // in order to check if more items have to be loaded in order to make container scrollable.
+
+          if (allItemsLoaded || this.element.nativeElement.scrollHeight > this.element.nativeElement.clientHeight) {
+            // Return if all items are loaded or if the container is (or became) scrollable.
             return;
           }
 
-          lastScrollHeight = this.element.nativeElement.scrollHeight;
-          setTimeout(() => {
-            this.handleOnScroll({
-              type: InfiniteScrollActions.DOWN,
-              payload: null,
-            });
+          // Load more items to make container scrollable.
+          this.handleOnScroll({
+            type: InfiniteScrollActions.DOWN,
+            payload: null,
           });
         });
       }
